@@ -1,4 +1,5 @@
 # 10 - Automation tips
+Applies to: **universal**.
 
 Decompilation has a lot of repetitive, verifiable chores. A few lessons from scripting them (whether the "worker" is a
 shell script, a batch search or an assistant program):

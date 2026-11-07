@@ -3,7 +3,7 @@
 A handbook for **byte-matching decompilation**: writing C/C++ that the original compiler turns into the exact same
 bytes as the retail game. It is written for people using the usual toolchain (decomp-toolkit "dtk", objdiff, ninja,
 decomp-permuter, m2c), mostly with MWCC 2.x ("GC/2.6" style compilers), but the verification and workflow chapters
-apply to any decompilation project.
+apply to any decompilation project. Every file starts with an `Applies to:` line: **universal** or **GameCube / MWCC**; the top-level README has the full scope table.
 
 Everything here was learned the hard way on a large project. The examples are short and use neutral names.
 Compiler behaviour is described as *observed* with specific compiler builds; always confirm with your own lab
@@ -24,6 +24,7 @@ Compiler behaviour is described as *observed* with specific compiler builds; alw
 | [09-portability.md](09-portability.md) | If you later compile the decompiled source for PC: what breaks and how to avoid it |
 | [10-automation-tips.md](10-automation-tips.md) | Scripting and batch-work tips |
 | [11-customizing-for-your-game.md](11-customizing-for-your-game.md) | Teaching the tools your engine, SDK and fix history: most wins come from this |
+| [12-triage-and-learning.md](12-triage-and-learning.md) | Real-difference triage, the lab method, ordering scores, learning from history (including a negative result), layout sweeps, byte-identity proofs |
 
 ## Five rules that matter most
 

@@ -1,4 +1,5 @@
 # 02 - A working model of MWCC code generation
+Applies to: **GameCube / MWCC (PowerPC)**. Read it as an example of *what to model* for any compiler (register allocation, evaluation order, stack layout, section layout); the rules themselves are MWCC's.
 
 These rules were measured with small lab files (see `tools/labgrid.py`) on a GC 2.x compiler at `-O4,p`, and
 partly cross-checked against a decompilation of the compiler's own back end ([rayanht/mwcc](https://github.com/rayanht/mwcc), GC 1.x). They are a *model*: use them to

@@ -1,4 +1,5 @@
 # 08 - Reference decomps (porting from sibling projects)
+Applies to: **universal** (sibling games, SDK libraries); the compiler-matching details are GameCube / MWCC.
 
 The fastest large gains come from code someone already matched. Most GameCube games share a lot.
 

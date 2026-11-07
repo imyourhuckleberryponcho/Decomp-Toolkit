@@ -1,4 +1,5 @@
 # 09 - Portability: compiling the decompiled source for PC
+Applies to: **universal** for a port of any decompiled game to a modern 64-bit platform (pointer widths, endianness, bitfields, evaluation order); the examples use GameCube sources.
 
 A matching decompilation is written for a 32-bit big-endian PowerPC with CodeWarrior's rules. If you later compile the
 same source for a 64-bit little-endian desktop target (MSVC, GCC, Clang), these are the things that break. The central
@@ -76,3 +77,43 @@ byte swap first.
   standing for a head pointer followed by a non-pointer field (overlaps on PC), views of one class in several files
   whose PC offsets differ.
 - Re-run the GameCube build and compare **objects byte for byte** after every portability edit.
+
+## Views of one class in many files
+
+Applies to: universal for any port; the offsets are GameCube's. Decompiled files often declare their own partial view
+of a class at the original offsets. On a platform with different pointer size or alignment, those views disagree about
+where a field is. Build a table of every class that occurs in more than one file (field, original offset, new-platform
+offset, per file) and look only at offset mismatches; a size-only mismatch of a short placeholder view is harmless
+unless something embeds, sizes or copies it. A pointer hidden in padding (`u8 pad[4]` followed by a non-pointer field)
+overlaps its neighbour as soon as pointers grow to 8 bytes. Mark data read straight from disc as big-endian with explicit
+types, so the port does not swap it twice.
+
+## Porting what generalises: N64, GBA, PS2, x86 and others
+
+The compiler and the CPU differ, the method does not.
+
+**Take as it is**
+- the workflow (cheapest first, park puzzles, only verified commits), the verification discipline (chapter 06),
+  the "real difference" triage and the lab method (chapter 12), the permuter and scripted search strategy
+  (chapter 07), long unattended runners that write to a review folder, history mining, value checkers, byte-identity
+  proof for neutral edits, porting lessons (this chapter);
+- the idea of a file-level cause: a whole file almost right = flags, pragmas, function order or a different library
+  version before it is bad C.
+
+**Replace**
+
+| Thing | Where it lives | Replace with |
+|---|---|---|
+| Compiler flags and pragmas | `04`, `fcheck`, `labgrid`, `flagsweep`-style tools | your compiler's: IDO `-O2 -g3 -mips2` plus `#pragma`s (N64); agbcc `-O2` with its own preprocessor step (GBA); GCC `-O2 -fno-...` (PS2 / PSP / old GCC games); MSVC `/O2 /Ob1` etc. (x86) |
+| Register conventions and what is "volatile" | `02`, `regplan`, `regorder` ideas | the ABI of your CPU: MIPS `$a0-$a3`, `$s0-$s7`; ARM `r0-r3` scratch and `r4-r11` saved; x86 `eax/ecx/edx` scratch and `ebx/esi/edi` saved |
+| Assembler syntax in the scanners | the regexes in `structdist`, `shapedist`, `reldiff`, `argextra`, `signscan`, `branchflip` | edit the register-name regex (`r\d+`, `f\d+`), the stack-pointer pattern (`N(r1)`), the copy instructions (`mr`, `fmr`), the branch mnemonics and the load/store names |
+| Small-data / constant pool rules | `05`, `poolscan`, `sdascan` | MIPS `$gp`-relative data, ARM literal pools, x86 `.rdata` constants: same idea (constants numbered in creation order, pools laid out in that order), different sections |
+| Project layout and diff tool | `dtkproj.py`, `fcheck.py` (dtk-template, objdiff, `ninja -t commands`) | the equivalent of your project: asm listing per unit, original object per unit, your compile command. N64/GBA projects use the same objdiff; PS2/x86 may use asm-differ or objdiff with their own configs |
+| Debug info used by `regplan` / `regwhere` | MWCC `-sym on` DWARF line table | whatever your compiler can emit (stabs, DWARF, `.mdebug`); without it, skip those tools and use the lab |
+| Draft generator | m2c | m2c also reads MIPS; for other CPUs use the best decompiler you have, the drafts are always rewritten by hand |
+
+**Typical per-platform notes.** IDO (N64) is very sensitive to statement order and to `register` hints and has a
+well-known "permuter-friendly" culture: the permuter ideas here apply directly. agbcc (GBA) is a GCC 2.95 variant:
+register allocation depends on declaration order and on `inline` placement, and projects there keep a flag list per file
+exactly like chapter 04. MSVC (x86) matching hinges on function order and on `/O` levels, and COMDAT folding
+changes what the linker keeps. In all cases: build a lab (chapter 12) before trusting a rule from this guide.

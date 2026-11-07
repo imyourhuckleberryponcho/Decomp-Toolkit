@@ -1,4 +1,5 @@
 # 07 - decomp-permuter, source search, and the near-miss workflow
+Applies to: **universal** strategy (permuter, scripted search, near-miss workflow, puzzles file); the specific edit families are tuned to **GameCube / MWCC**.
 
 ## What the permuter is good at
 
@@ -79,3 +80,26 @@ Whenever a shape resists, write it down as *pattern + what was tried + where it 
 solutions to several puzzles in this guide came from another game's source (the `continue`/explicit-`else` loop shape,
 the `if (model) return;` void function, the sibling's `float` getter). Searching sibling decomps before experimenting
 is the cheapest trick in this guide.
+
+## Tuning the search with data
+
+Applies to: universal strategy (the edit families are MWCC-flavoured).
+
+- **Order of attack for a register-only near miss:** (1) check the *real* difference is zero (`shapedist.py`); (2) the
+  scripted source-edit search (`tools/search/regsolve.py`: declaration moves, hoists, int/s32, call to inline helper,
+  call to temp local, pointer local to its expression, then pairs and a greedy combination; and the "expr" family:
+  split `x++`, `++x` before, compound versus plain assignment, reuse a loaded local, move a call-free assignment up,
+  integer sum regrouping, load into a temporary, `for` to `while` with a temporary step); (3) the permuter (focused on
+  the lines that define the misplaced values, then whole-function); (4) park.
+- **Use an ordering score as the tie breaker** (`regsolve --order`): among edits with equal diff-line counts, prefer
+  the one whose colouring order is closer to the target's (chapter 12, section 3). It turned several near misses into
+  exact matches.
+- **Start from the most faithful base.** If a hand-found variant has a more faithful shape (right width, right
+  temporary) but a lower score, make that the base of the next search.
+- **Know when the permuter is exhausted.** Statistics over tens of thousands of improvements showed no useful gain left
+  on the functions that are still register-only: stop re-running the same pile; spend the CPU on new functions,
+  new tricks, or a shared helper that explains a whole family.
+- **Do not train a ranker on edit kind + function statistics.** Tried, cross-validated by function, no better than random
+  (chapter 12, section 4).
+- Skip functions that are already exact in the current source ("base score 0 = already exact"): a stale list otherwise
+  burns minutes per fake zero.

@@ -1,4 +1,5 @@
 # 01 - Setup and workflow
+Applies to: **universal** (workflow, order of attack). The toolchain table is **GameCube / Wii (dtk, MWCC)**; replace it with your own platform's assembler, linker and diff tool.
 
 ## Toolchain
 

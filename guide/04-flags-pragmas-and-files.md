@@ -1,4 +1,5 @@
 # 04 - Whole-file causes: flags, pragmas, deferred inlining, function order
+Applies to: **GameCube / MWCC**. The idea "a whole file almost right = flags, pragmas or function order" is universal; the flags, `-inline deferred` and pragmas are MWCC's.
 
 If **every** function of a file is close but none is exact, suspect the file's build settings before the code.
 
@@ -73,3 +74,13 @@ Many SDK libraries (MSL, Runtime, TRK) and engine-library code (HSD baselib, C m
   suffix; suffixed sections get dropped by the linker).
 - Runtime `memcpy`/`memset` live in `.init`: `#pragma section code_type ".init"`.
 - A member declared in a draft as `static` makes m2c shift all parameters.
+
+## More layout rules (GameCube / MWCC)
+
+- A helper with a function-static table, in a deferred file, is numbered where it is *generated*: define it near its
+  last use. The original's `$2332` after `$2317` tells you which function comes first.
+- A tail gap of 0x10 bytes before a 32-byte-aligned object is linker alignment; shrink the split end instead of adding data.
+- Namespaces defeat simple "reverse the functions" scripts (globals fall into the anonymous namespace): reverse by hand
+  and check LAYOUT.
+- Sweeping every unlinked unit with the layout checker and tabulating the blocker kinds per unit (function order, data
+  offsets, pool order, bss, values) finds the units that link as soon as their last function is exact (chapter 12).

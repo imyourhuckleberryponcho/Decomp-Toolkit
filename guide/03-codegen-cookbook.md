@@ -1,4 +1,5 @@
 # 03 - Codegen cookbook: symptom -> source fix
+Applies to: **GameCube / MWCC (PowerPC)**, except section H (draft bugs behind 95-99% scores) and the first-aid lists of "check the value, not just the score", which are **universal**.
 
 Each recipe: what you see in the *target* vs. yours, then the source change that produced the target. Names are
 neutral. Recipes were observed on MWCC GC/2.x; confirm each with a quick lab compile.
@@ -223,3 +224,34 @@ more objects inside the "struct". Large binary arrays: dtk's `extract:` option +
 jumping backwards, is what `goto` (or a loop construct) produces; `if (c1) A else if (c2) A else B` makes two copies
 and `c1 || c2` puts the second test before. If every structured form fails, a single shared label is acceptable -
 that is how the original was written.
+
+## K. Rules measured with small labs (GameCube / MWCC)
+
+Each of these came from a miniature compiled in `tools/labgrid.py` (chapter 12), not from guessing.
+
+**Dead compare.** A `switch` with exactly ONE do-nothing case (the same as `default`) emits `cmpwi K; b default`: the
+`beq` is dropped. With TWO do-nothing cases (merged or separate labels, any order) the `beq` stays. An empty
+`if (st == 0) { DEBUG_MACRO(..); }` disappears with no compare at all, while case bodies made of a debug macro keep
+the `beq`. So a leftover `cmpwi K; b L` pair is a one-case switch, not three cases.
+
+**Loop test at the top.** `while (c) step;` is rotated (test at the bottom). A top-tested loop that reloads its
+operands is `for (;;) { if (c) break; step; }` (string scans, tag searches).
+
+**Address folding.** `memcpy(&a[1 + n], ..)` folds the `+1` into the index; `&(&a[1])[n]` keeps the `+4` after the
+scaled index. A field address the target keeps in a register across a loop (`addi rX,rBase,0x84`) is
+`T* p = &obj->field;` before the loop.
+
+**Operand order of a commutative operation** (`add r3,r3,r0` against `add r3,r0,r3`) is the source spelling (which
+operand is written first, int + pointer versus pointer + int), not register allocation. Register searches cannot fix it.
+
+**Vtable order.** Vtables are emitted in the reverse order of each class's first non-inline virtual function. If the
+target's order is the reverse of the destructor order, the destructor was the first virtual declared in each class.
+
+**Target re-loads a field with no store in between** (two switches on `tex->format`): not an inline-helper boundary in
+the cases tried (both switches as helpers, one helper for entries only, one for the special format only: all worse).
+Next suspects: the two reads go through different types/expressions (a header view versus the full struct, `s32`
+versus `u32`), or the first read is a shared helper call.
+
+**Structure after an exact match is still a hint.** A permuter or search result that matches by adding a no-op
+(`if (p == 0) p = 0`, a comma, a volatile) is evidence about *where* the difference is, not the answer: rewrite it as
+the code the author would have written, or leave the function parked.

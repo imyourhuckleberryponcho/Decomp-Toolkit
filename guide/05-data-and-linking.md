@@ -1,4 +1,5 @@
 # 05 - Data, splits and linking
+Applies to: **universal** for splits, padding, dead stripping and the executable hash; **GameCube / MWCC** for `.sdata/.sdata2` pools, `@N` constants, `__vt__` and small-data addressing.
 
 Code can match 100% and the unit still will not link. These are the data-side reasons.
 
@@ -80,3 +81,9 @@ the executable hash: `@N` shifts show up only in object symbol tables.
 
 All functions exact - layout (function order, symbol offsets, section sizes) - constants - calls - data bytes ->
 flip the object to matching -> full build, hash OK -> compare with the session baseline -> commit.
+
+## Vtable order (GameCube / MWCC)
+
+Vtables are emitted in the reverse order of each class's first non-inline virtual function. A target whose vtables
+appear in the reverse of the destructors' order means the destructor is declared first among the virtual functions of
+each class. Check this before moving classes around in the file.

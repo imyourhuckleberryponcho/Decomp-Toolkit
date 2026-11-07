@@ -30,6 +30,8 @@ in your own copy - they are short.
 | `jtcheck.py` | Jump-table entries (ranked by target block) vs the target: wrong/missing `case` labels that score 100% | `jtcheck.py [--only U] [--all]` |
 | `callorder.py` | Call sequence per function, target vs ours | `callorder.py <unit> [func ...]` |
 | `structdist.py` | Distance of one function after replacing register names: 0 = register-only | `structdist.py <unit> <func> [--show]` |
+| `shapedist.py` | REAL code difference: also ignores stack-slot offsets, `mr` copies, saved-register spills, frame size and anonymous-versus-named symbols; 0 = colouring puzzle only | `shapedist.py <unit> <func> [--show]` or `--batch Q.tsv` |
+| `objsame.py` | Proves an edit left the object byte-identical (code + relocations + all section bytes) against git HEAD, or against saved objects for header edits | `objsame.py src/x.cpp [--rev R]`; `--save NAME` / `--compare NAME` |
 
 ## Finding what is wrong across many units (read report.json + objects)
 
@@ -66,6 +68,13 @@ in your own copy - they are short.
 | `movefn.py` | Move a function definition (with its `extern`/pragma wrappers) before another, or reorder a file to the asm order (`--reverse` for deferred files) | `movefn.py FILE --asm build/<VER>/asm/<unit>.s [--reverse]` |
 | `hoistdecl.py` | After `movefn --asm`: make the reordered file compile again (moves declarations up, adds prototypes) | `hoistdecl.py <unit> <src>` |
 | `revfuncs.py` | Reverse the order of function definitions from a given start to the end (deferred files) | `revfuncs.py FILE "first function signature"` |
+
+## Ideas described in the guide only (no code here)
+
+Ordering score for register colouring (`regorder`/`regmodel`), statistics over permuter history (`permlearn`), unit layout
+blocker sweeps (`layoutsweep`/`onelayout`), per-register value tracing (`opsrc`), argument/return/store value checkers
+(`argsrc`/`retcheck`/`storecheck`), class view/offset tables for ports (`gclayout`/`viewsweep`/`pcsizes`). They depend
+on project data (histories, lists of linked units); chapter 12 explains how to build each.
 
 ## Notes
 

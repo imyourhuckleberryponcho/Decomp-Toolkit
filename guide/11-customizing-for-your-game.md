@@ -1,4 +1,5 @@
 # 11. Customising the tools for your game
+Applies to: **universal** (the stance: tools get strong when they know your project); file names refer to the tools in this repo.
 
 The tools in this repository are generic on purpose: they know C, C++ and the compiler, but not your game. That is
 enough to start, but **most of the wins come after you teach them your project**. In the project these tools come
