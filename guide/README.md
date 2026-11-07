@@ -23,6 +23,7 @@ Compiler behaviour is described as *observed* with specific compiler builds; alw
 | [08-reference-decomps.md](08-reference-decomps.md) | Porting from sibling projects and the SDK libraries |
 | [09-portability.md](09-portability.md) | If you later compile the decompiled source for PC: what breaks and how to avoid it |
 | [10-automation-tips.md](10-automation-tips.md) | Scripting and batch-work tips |
+| [11-customizing-for-your-game.md](11-customizing-for-your-game.md) | Teaching the tools your engine, SDK and fix history: most wins come from this |
 
 ## Five rules that matter most
 

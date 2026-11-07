@@ -27,12 +27,20 @@ automated the boring parts. It is not a framework; take what helps.
    See `tools/README.md` for the full list and for how project paths are found (`DECOMP_REPO`, `DECOMP_VERSION`).
 3. If you use decomp-permuter, look at `permuter/` for a patch with a shared memory of tried candidates and safer passes.
 
+## Make them fit your game
+
+The tools are generic, and they work much better once they know your project: your engine's accessors and macros,
+your SDK's helpers, your draft tool's habits, your files' compiler settings and your own fix history. Read
+`guide/11-customizing-for-your-game.md`; `examples/my_game_tricks.py` is a plug-in template for the source search.
+
 ## Map
 
 | Folder | Contents |
 |---|---|
 | `guide/` | the handbook: workflow, a model of MWCC register allocation / evaluation order / stack layout, symptom -> fix recipes, flags and deferred-inlining files, data and linking, verification pitfalls, permuter use, reference decomps, PC-port portability |
-| `tools/` | ~25 stand-alone scripts (Python 3, standard library) plus `tools/README.md` |
+| `tools/` | stand-alone scripts (Python 3, standard library) plus `tools/README.md`; `tools/search/` (regsolve, tricksweep) and `tools/permuter/` (permuter drivers) |
+| `runner/` | configurable long-run (overnight) runner: stages, lanes, parking, morning report; results go to a review folder, never into your source |
+| `examples/` | a trick plug-in template (`my_game_tricks.py`) |
 | `permuter/` | improvements to decomp-permuter as a patch against upstream commit `8556c81`, and a README explaining each |
 | `LICENSE` | MIT (third-party notice for decomp-permuter included) |
 

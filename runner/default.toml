@@ -1,0 +1,57 @@
+# Default configuration of runner.py. Copy it, edit it; the runner re-reads it between tasks (hot reload).
+# Paths are relative to the project root. Run: python runner/runner.py run --config runner/default.toml --hours 8
+
+output = "build/scratch/runner"      # logs, state.json, package_<time>/ end up here
+hours = 8                            # total time budget (override: --hours)
+scratch_prefix = "runner_"           # names of the scratch folders/tags the runner creates below build/scratch
+
+[paths]
+# permuter = "/path/to/decomp-permuter"   # or set DECOMP_PERMUTER
+# runs = "build/scratch/perm_runs"        # permuter run folders
+
+[run]
+lanes = 2             # tasks running at the same time (each permuter task also uses `threads` CPU threads)
+park_after = 2        # park a function after this many passes without any win (retried when its source changes)
+pass_growth = 1.5     # each further pass gives every stage this many times more seconds (1.0 = same budget)
+
+[boost]
+lanes = 2             # extra lanes started while the machine is idle ...
+cpu_below = 60        # ... i.e. the last two CPU samples were below this percent (0 lanes = off)
+interval = 30         # seconds between looking whether to add a lane
+
+[select]
+# which functions: report.json, units that are not complete yet
+min = 80              # fuzzy match percent, inclusive
+max = 99.99
+max_size = 1200       # bytes of code
+order = "closest"     # closest = highest percent first, size_desc = biggest first
+# top = 50            # only the first N after ordering
+# units = ["^game/menu"]            # regexes on the unit name
+# skip = ["game/old", "game/menu:funcName__Fv"]   # unit prefix (ending in /), function symbol or unit:symbol
+# skip_file = "build/scratch/runner/skip.txt"     # same entries, one per line
+
+# ---- stages: run in this order on every selected function, one pass after the other -------------------------------
+# command placeholders: {py} {repo} {ver} {tools} {unit} {func} {src} {t} (seconds) {j} (threads) {tag} {permuter} {runs}
+# contract: the LAST stdout line is   RESULT <unit> <func> <base> <best> <path-or-NONE>   (0 = exact)
+# kind = "unit-source": <path> is a complete candidate source file for the unit, verified with fcheck
+# kind = "permuter":    <path> is a permuter output, collected at the end into package/permuter_review
+
+[[stage]]
+name = "regsolve"
+kind = "unit-source"
+command = "{py} {tools}/search/regsolve.py {unit} {func} --src {src} --timeout {t}"
+seconds = 120
+
+[[stage]]
+name = "tricksweep"
+kind = "unit-source"
+command = "{py} {tools}/search/tricksweep.py {unit} {func} --src {src} --timeout {t}"
+seconds = 300
+
+[[stage]]
+name = "tandem"
+kind = "permuter"
+command = "{py} {tools}/permuter/permtandem.py {unit} {func} --seconds {t} -j {j} --permuter {permuter} --runs {runs}"
+run_folder = "{func}__tandem"
+seconds = 600
+threads = 6
