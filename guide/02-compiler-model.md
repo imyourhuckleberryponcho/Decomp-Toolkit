@@ -1,7 +1,7 @@
 # 02 - A working model of MWCC code generation
 
 These rules were measured with small lab files (see `tools/labgrid.py`) on a GC 2.x compiler at `-O4,p`, and
-partly cross-checked against a decompilation of the compiler's own back end. They are a *model*: use them to
+partly cross-checked against a decompilation of the compiler's own back end ([rayanht/mwcc](https://github.com/rayanht/mwcc), GC 1.x). They are a *model*: use them to
 decide what to try, then let the compiler confirm.
 
 ## Registers
