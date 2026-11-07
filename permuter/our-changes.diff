@@ -1,0 +1,634 @@
+diff --git a/default_weights.toml b/default_weights.toml
+index 1a67fff..754ecc8 100644
+--- a/default_weights.toml
++++ b/default_weights.toml
+@@ -39,6 +39,8 @@ perm_var_cond_block = 5
+ perm_alias_array = 1
+ perm_remove_var = 5
+ perm_reverse_cond = 1
++perm_reorder_stmts_safe = 10
++perm_swap_comma = 3
+ 
+ [ido]
+ perm_float_literal = 10
+diff --git a/src/candidate.py b/src/candidate.py
+index d4c7d64..e37d7fc 100644
+--- a/src/candidate.py
++++ b/src/candidate.py
+@@ -13,6 +13,7 @@ from .perm.ast import apply_ast_perms
+ from .helpers import try_remove
+ from .profiler import Profiler
+ from . import ast_util
++from .randomizer import HELPERS
+ 
+ 
+ @dataclass
+@@ -70,6 +71,13 @@ class Candidate:
+         fn_copy = copy.deepcopy(orig_fn)
+         ast.ext[fn_index] = fn_copy
+         apply_ast_perms(fn_copy, eval_state)
++        # PERM_HELPERS=name,name - inline helpers the randomizer may also edit (a family's shared
++        # cause often sits in a helper the target only inlines). Each candidate gets its own copy of them.
++        for i, item in enumerate(ast.ext):
++            if isinstance(item, ca.FuncDef) and item.decl.name in HELPERS and i != fn_index:
++                helper = copy.deepcopy(item)
++                ast_util.normalize_ast(helper, ast)
++                ast.ext[i] = helper
+         return Candidate(
+             ast=ast,
+             fn_name=fn_name,
+diff --git a/src/compiler.py b/src/compiler.py
+index d9161dd..3132b41 100644
+--- a/src/compiler.py
++++ b/src/compiler.py
+@@ -2,6 +2,9 @@ from typing import Optional
+ import tempfile
+ import subprocess
+ import shutil
++import json
++import os
++import sys
+ 
+ from .helpers import try_remove
+ 
+@@ -14,8 +17,9 @@ class Compiler:
+         self.show_errors = show_errors
+         self.debug_mode = debug_mode
+ 
++        self._native = os.path.join(os.path.dirname(compile_cmd), 'compile_native.json')
+         bash = shutil.which("bash")
+-        if bash is None:
++        if bash is None and not os.path.exists(self._native):
+             raise Exception(
+                 "No `bash` executable was found on PATH. Install bash and make "
+                 "sure it's on PATH (on Windows, Git for Windows provides one)."
+@@ -48,8 +52,14 @@ class Compiler:
+ 
+         try:
+             stderr = 2 if show_errors else subprocess.DEVNULL
++            if os.path.exists(self._native):
++                with open(self._native, encoding='utf-8') as config:
++                    driver = json.load(config)['driver']
++                command = [sys.executable, driver, self._native, c_name, '-o', o_name]
++            else:
++                command = [self._bash, self.compile_cmd, c_name, '-o', o_name]
+             subprocess.check_call(
+-                [self._bash, self.compile_cmd, c_name, "-o", o_name],
++                command,
+                 stdout=stderr,
+                 stderr=stderr,
+             )
+diff --git a/src/permuter.py b/src/permuter.py
+index 861efde..7292075 100644
+--- a/src/permuter.py
++++ b/src/permuter.py
+@@ -17,6 +17,7 @@ from typing import (
+ 
+ from .candidate import Candidate, CandidateResult
+ from .compiler import Compiler
++from .seenstore import SeenStore, open_store
+ from .error import CandidateConstructionFailure
+ from .perm.perm import EvalState
+ from .perm.eval import perm_evaluate_one, perm_gen_all_seeds
+@@ -137,6 +138,8 @@ class Permuter:
+         self._cur_cand: Optional[Candidate] = None
+         self._last_score: Optional[int] = None
+         self._score_for_source: Dict[bytes, int] = {}
++        self._seen: Optional[SeenStore] = None
++        self._seen_opened = False
+         self.speed = speed
+ 
+     def _create_and_score_base(self) -> Tuple[int, str, str]:
+@@ -204,6 +207,16 @@ class Permuter:
+         profiler.add_stat(Profiler.StatType.stringify, timer.tick())
+ 
+         old_score = self._score_for_source.get(source_hash)
++        if old_score is None:
++            # shared + persistent memory (seenstore.py); opened lazily inside each worker process.
++            # Only scores worse than the base are reused: those are never output, so results stay the same.
++            if not self._seen_opened:
++                self._seen_opened = True
++                self._seen = open_store(self.dir, self.fn_name, self.scorer)
++            if self._seen is not None:
++                shared = self._seen.get(source_hash)
++                if shared is not None and shared > self.base_score:
++                    old_score = shared
+         if old_score is not None:
+             result = CandidateResult(score=old_score, hash=None, source=cand_source)
+         else:
+@@ -217,6 +230,8 @@ class Permuter:
+ 
+             if len(self._score_for_source) < 100000:  # prevent unbounded memory usage
+                 self._score_for_source[source_hash] = result.score
++            if self._seen is not None:
++                self._seen.add(source_hash, result.score)
+ 
+         if self.need_profiler:
+             result.profiler = profiler
+diff --git a/src/preprocess.py b/src/preprocess.py
+index 8447a80..790cdb7 100644
+--- a/src/preprocess.py
++++ b/src/preprocess.py
+@@ -1,8 +1,17 @@
+ from typing import List
++import re
++import shutil
+ import subprocess
+ 
+ 
+ def preprocess(filename: str, cpp_args: List[str] = []) -> str:
++    if shutil.which("cpp") is None:
++        # Local Windows fallback: base.c is already fully preprocessed (by mwcc -E),
++        # so just drop line markers.
++        with open(filename, encoding="utf-8") as f:
++            text = f.read()
++        text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
++        return re.sub(r"^#\s*(line\s+)?\d+.*$", "", text, flags=re.M)
+     return subprocess.check_output(
+         ["cpp"] + cpp_args + ["-P", "-nostdinc", "-DPERMUTER", filename],
+         universal_newlines=True,
+diff --git a/src/randomizer.py b/src/randomizer.py
+index 8604225..6c5982e 100644
+--- a/src/randomizer.py
++++ b/src/randomizer.py
+@@ -334,6 +334,10 @@ def visit_replace(top_node: ca.Node, callback: Callable[[ca.Node, bool], Any]) -
+         elif isinstance(node, ca.Decl):
+             if node.init:
+                 node.init = rec(node.init, isinstance(node.init, ca.InitList))
++        elif isinstance(node, ca.DeclList):
++            # C99/C++ loop-local declarations are statements, not expressions.
++            for i in range(len(node.decls)):
++                node.decls[i] = rec(node.decls[i], True)
+         elif isinstance(node, ca.For):
+             if node.init:
+                 node.init = empty_statement_to_none(rec(node.init, True))
+@@ -465,7 +469,8 @@ def random_type(random: Random) -> SimpleType:
+     )
+     idtype = ca.IdentifierType(names=new_names)
+     quals = []
+-    if random_bool(random, 0.5):
++    # volatile is a banned workaround here; never add it unless PERM_VOLATILE=1
++    if __import__('os').environ.get('PERM_VOLATILE') == '1' and random_bool(random, 0.5):
+         quals = ["volatile"]
+     return ca.TypeDecl(declname=None, quals=quals, align=[], type=idtype)
+ 
+@@ -2619,6 +2624,194 @@ def perm_remove_var(
+     visit_replace(fn.body, callback)
+ 
+ 
++# Behaviour-preserving statement moves. perm_reorder_stmts is off here (it moves calls into other
++# branches); these two only swap neighbours that cannot see each other's effects. Evidence: 288 past hand fixes were
++# pure statement moves and 20 were for-init/increment order swaps (fixreplay.json).
++class _Eff:
++    __slots__ = ("reads", "writes", "call", "memr", "memw", "barrier")
++
++    def __init__(self) -> None:
++        self.reads: Set[str] = set()
++        self.writes: Set[str] = set()
++        self.call = False
++        self.memr = False
++        self.memw = False
++        self.barrier = False
++
++
++def _fn_locals(fn: ca.FuncDef) -> Set[str]:
++    """Local variables and parameters whose address is never taken (only those are tracked by name)."""
++    names: Set[str] = set()
++    addr: Set[str] = set()
++
++    class V(ca.NodeVisitor):
++        def visit_Decl(self, node: ca.Decl) -> None:
++            if node.name and not isinstance(node.type, ca.FuncDecl):
++                names.add(node.name)
++            self.generic_visit(node)
++
++        def visit_UnaryOp(self, node: ca.UnaryOp) -> None:
++            if node.op == "&" and isinstance(node.expr, ca.ID):
++                addr.add(node.expr.name)
++            self.generic_visit(node)
++
++    V().visit(fn.body)
++    assert isinstance(fn.decl.type, ca.FuncDecl)
++    if fn.decl.type.args is not None:
++        for p in fn.decl.type.args.params:
++            if isinstance(p, ca.Decl) and p.name:
++                names.add(p.name)
++    # arrays live in memory: indexing them is a memory access, never a plain register read
++    return names - addr
++
++
++def _effects(node: ca.Node, locs: Set[str]) -> _Eff:
++    e = _Eff()
++
++    def rd(n: Optional[ca.Node]) -> None:
++        if n is None:
++            return
++        if isinstance(n, ca.ID):
++            if n.name in locs:
++                e.reads.add(n.name)
++            else:
++                e.memr = True
++        elif isinstance(n, ca.FuncCall):
++            e.call = True
++            if not isinstance(n.name, ca.ID):
++                rd(n.name)
++            if n.args is not None:
++                rd(n.args)
++        elif isinstance(n, ca.Assignment):
++            wr(n.lvalue, n.op != "=")
++            rd(n.rvalue)
++        elif isinstance(n, ca.UnaryOp) and n.op in ("++", "--", "p++", "p--"):
++            wr(n.expr, True)
++        elif isinstance(n, ca.UnaryOp) and n.op == "sizeof":
++            pass
++        elif isinstance(n, (ca.StructRef, ca.ArrayRef)) or (
++            isinstance(n, ca.UnaryOp) and n.op == "*"
++        ):
++            e.memr = True
++            for _, c in n.children():
++                if isinstance(n, ca.StructRef) and c is n.field:
++                    continue
++                rd(c)
++        elif isinstance(n, (ca.Constant, ca.Typename)):
++            pass
++        elif isinstance(
++            n, (ca.BinaryOp, ca.UnaryOp, ca.Cast, ca.TernaryOp, ca.ExprList)
++        ):
++            for _, c in n.children():
++                rd(c)
++        else:
++            e.barrier = True
++
++    def wr(lv: ca.Node, alsoread: bool) -> None:
++        if isinstance(lv, ca.ID) and lv.name in locs:
++            e.writes.add(lv.name)
++            if alsoread:
++                e.reads.add(lv.name)
++        else:
++            e.memw = True
++            if isinstance(lv, ca.ID):
++                e.memr = True
++            else:
++                # the address computation itself is a read
++                for _, c in lv.children():
++                    if isinstance(lv, ca.StructRef) and c is lv.field:
++                        continue
++                    rd(c)
++
++    if isinstance(
++        node, (ca.Assignment, ca.FuncCall, ca.UnaryOp, ca.BinaryOp, ca.Cast, ca.ExprList)
++    ):
++        rd(node)
++    else:
++        e.barrier = True
++    return e
++
++
++def _independent(a: _Eff, b: _Eff) -> bool:
++    if a.barrier or b.barrier:
++        return False
++    if a.writes & (b.reads | b.writes) or b.writes & a.reads:
++        return False
++    for x, y in ((a, b), (b, a)):
++        if x.memw and (y.memr or y.memw or y.call):
++            return False
++        if x.call and (y.call or y.memr or y.memw):
++            return False
++    return True
++
++
++def perm_reorder_stmts_safe(
++    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
++) -> None:
++    """Swap a statement past neighbours in the same block that it cannot affect (no shared variables, calls or memory)."""
++    locs = _fn_locals(fn)
++    cands: List[Tuple[Block, int]] = []
++
++    def rec(block: Block) -> None:
++        stmts = ast_util.get_block_stmts(block, False)
++        for i, stmt in enumerate(stmts):
++            if region.contains_node(stmt) and not ast_util.has_nested_block(stmt):
++                cands.append((block, i))
++            ast_util.for_nested_blocks(stmt, rec)
++
++    rec(fn.body)
++    ensure(cands)
++    block, i = random.choice(cands)
++    stmts = ast_util.get_block_stmts(block, False)
++    me = _effects(stmts[i], locs)
++    ensure(not me.barrier)
++    step = random.choice((-1, 1))
++    j = i
++    # move 1..n places while every crossed statement is independent; stop at random
++    while True:
++        k = j + step
++        if k < 0 or k >= len(stmts) or not region.contains_node(stmts[k]):
++            break
++        if not _independent(me, _effects(stmts[k], locs)):
++            break
++        j = k
++        if random_bool(random, 0.6):
++            break
++    ensure(j != i)
++    stmt = stmts.pop(i)
++    stmts.insert(j, stmt)
++
++
++def perm_swap_comma(
++    fn: ca.FuncDef, ast: ca.FileAST, indices: Indices, region: Region, random: Random
++) -> None:
++    """Swap two independent expressions of a comma list (for-loop init/increment: `i = 0, p = a` -> `p = a, i = 0`)."""
++    locs = _fn_locals(fn)
++    lists: List[ca.ExprList] = []
++
++    # only lists whose value is unused: for-loop init/increment and comma statements (not `x = (a, b)`, not call args)
++    def add(n: Optional[ca.Node]) -> None:
++        if isinstance(n, ca.ExprList) and len(n.exprs) >= 2 and region.contains_node(n):
++            lists.append(n)
++
++    def rec(block: Block) -> None:
++        for stmt in ast_util.get_block_stmts(block, False):
++            add(stmt)
++            if isinstance(stmt, ca.For):
++                add(stmt.init)
++                add(stmt.next)
++            ast_util.for_nested_blocks(stmt, rec)
++
++    rec(fn.body)
++    ensure(lists)
++    el = random.choice(lists)
++    i = random.randrange(len(el.exprs) - 1)
++    a, b = el.exprs[i], el.exprs[i + 1]
++    ensure(_independent(_effects(a, locs), _effects(b, locs)))
++    el.exprs[i], el.exprs[i + 1] = b, a
++
++
++
+ RandomizationPass = Callable[[ca.FuncDef, ca.FileAST, Indices, Region, Random], None]
+ 
+ RANDOMIZATION_PASSES: List[RandomizationPass] = [
+@@ -2659,9 +2852,15 @@ RANDOMIZATION_PASSES: List[RandomizationPass] = [
+     perm_alias_array,
+     perm_remove_var,
+     perm_reverse_cond,
++    perm_reorder_stmts_safe,
++    perm_swap_comma,
+ ]
+ 
+ 
++HELPERS = [h for h in __import__('os').environ.get('PERM_HELPERS', '').split(',') if h]
++HELPER_SHARE = float(__import__('os').environ.get('PERM_HELPER_SHARE', '0.5'))
++
++
+ class Randomizer:
+     def __init__(
+         self,
+@@ -2689,7 +2888,22 @@ class Randomizer:
+         ]
+ 
+     def randomize(self, ast: ca.FileAST, fn_name: str) -> None:
+-        fn = ast_util.extract_fn(ast, fn_name)[0]
++        # with PERM_HELPERS set, a share (PERM_HELPER_SHARE, default 0.5) of the edits go into one
++        # of the named inline helpers instead of the target function (candidate.py gives each candidate its own
++        # copy). Helpers have no PERM_RANDOMIZE markers, so their region is the whole helper.
++        # (never extract_fn() a helper: it turns every other non-inline function into a bare declaration, i.e. it
++        # would delete the TARGET's body)
++        fn = None
++        if HELPERS and self.random.random() < HELPER_SHARE:
++            present = [
++                item
++                for item in ast.ext
++                if isinstance(item, ca.FuncDef) and item.decl.name in HELPERS
++            ]
++            if present:
++                fn = self.random.choice(present)
++        if fn is None:
++            fn = ast_util.extract_fn(ast, fn_name)[0]
+         indices = ast_util.compute_node_indices(fn)
+         region = get_randomization_region(fn, indices, self.random)
+         while True:
+diff --git a/src/seenstore.py b/src/seenstore.py
+new file mode 100644
+index 0000000..1bd4a58
+--- /dev/null
++++ b/src/seenstore.py
+@@ -0,0 +1,219 @@
++"""Shared, persistent memory of candidate scores.
++
++The permuter's own cache (_score_for_source) lives in one worker process and dies with the run. Measured on
++two 60 s x 8-worker runs: 20-36% of compiles repeated a candidate another worker had compiled, and on a second
++run of the same function 35-52% of compiles repeated something already tried. This store is shared by all
++workers (one append-only file per process, read by the others every few seconds) and kept between runs.
++
++Key = everything a candidate's score depends on besides its own source text: target.o, the compile commands,
++the scorer options and the scorer code. Candidate sources are whole files, so the surrounding code is part of
++the source hash already.
++
++Only scores WORSE than the base are ever served from the store: should_output() never outputs those, so
++results/outputs are unchanged; anything as good as the base or better is compiled and scored as before.
++Disable with PERM_SEEN=0. Root: PERM_SEEN_DIR, default <run dir>/../_seen. Unused stores are deleted after
++KEEP_DAYS; a store with many worker files merges the finished ones.
++"""
++import glob
++import hashlib
++import json
++import os
++import re
++import time
++from typing import Dict, Optional
++
++REFRESH_SECONDS = 5.0
++MAX_ENTRIES = 2_000_000   # ~200 MB worst case per process; the store stops growing in memory beyond this
++KEY_HEX = 32              # 128 bits of the sha256: no collision in practice, half the disk of the full hash
++MERGE_AT = 48             # more worker files than this in one store: merge the finished ones into one
++KEEP_DAYS = 14            # stores not used for this long are deleted (old keys after a helper-script change)
++
++
++def store_key(run_dir: str, scorer: object) -> str:
++    h = hashlib.sha256(b"seenstore v1")
++    for name in ("target.o", "compile.sh", "compile_native.json"):
++        try:
++            with open(os.path.join(run_dir, name), "rb") as f:
++                data = f.read()
++        except OSError:
++            data = b"-"
++        if name != "target.o":   # lanes of one function differ only in their folder name
++            data = data.replace(os.path.basename(os.path.normpath(run_dir)).encode(), b"<RUN>")
++        h.update(name.encode() + b"\0" + data + b"\0")
++    # our own compile helpers shape the object too (compile_native.json's driver, isolate_function.py in compile.sh)
++    scripts = set()
++    try:
++        with open(os.path.join(run_dir, "compile_native.json"), encoding="utf-8") as f:
++            driver = json.load(f).get("driver")
++        if driver:
++            scripts.update([driver, os.path.join(os.path.dirname(driver), "isolate_function.py")])
++    except (OSError, ValueError, AttributeError):
++        pass
++    try:
++        with open(os.path.join(run_dir, "compile.sh"), encoding="utf-8", errors="replace") as f:
++            scripts.update(re.findall(r'"([^"]+\.py)"', f.read()))
++    except OSError:
++        pass
++    for path in sorted(scripts):
++        try:
++            with open(path, "rb") as f:
++                h.update(path.encode() + b"\0" + f.read())
++        except OSError:
++            pass
++    for attr in ("stack_differences", "algorithm", "ign_branch_targets", "objdump_command"):
++        h.update(("%s=%r\0" % (attr, getattr(scorer, attr, None))).encode())
++    here = os.path.dirname(os.path.abspath(__file__))
++    for name in ("scorer.py", "objdump.py", "compiler.py"):
++        try:
++            with open(os.path.join(here, name), "rb") as f:
++                h.update(f.read())
++        except OSError:
++            pass
++    return h.hexdigest()[:24]
++
++
++class SeenStore:
++    def __init__(self, run_dir: str, fn_name: str, scorer: object) -> None:
++        root = os.environ.get("PERM_SEEN_DIR") or os.path.join(os.path.dirname(os.path.normpath(run_dir)), "_seen")
++        # named after the run folder (lanes: __tfocus/__twhole; the function inside may be renamed, e.g. permX)
++        name = re.sub(r"__(tfocus|twhole|focus|parallel)$", "", os.path.basename(os.path.normpath(run_dir))) or fn_name
++        safe = "".join(c if c.isalnum() or c in "_-" else "_" for c in name)[:60]
++        self.dir = os.path.join(root, "%s_%s" % (safe, store_key(run_dir, scorer)))
++        os.makedirs(self.dir, exist_ok=True)
++        self.own = os.path.join(self.dir, "%d_%d.txt" % (os.getpid(), time.time_ns()))
++        self.scores: Dict[str, int] = {}
++        self.offsets: Dict[str, int] = {}
++        self.next_refresh = 0.0
++        self.hits = self.adds = 0
++        self.refresh()
++        self.merge()
++        self.out = open(self.own, "a", encoding="ascii")
++
++    def merge(self) -> None:
++        """The parallel restarts its workers often (one file each): fold finished files into one. Everything was read
++        by refresh() just before; a file untouched for 2 minutes belongs to a worker that has ended."""
++        files = glob.glob(os.path.join(self.dir, "*.txt"))
++        if len(files) <= MERGE_AT:
++            return
++        lock = os.path.join(self.dir, "merge.lock")
++        try:
++            if time.time() - os.path.getmtime(lock) > 600:
++                os.remove(lock)   # left behind by a killed worker
++        except OSError:
++            pass
++        try:
++            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
++        except OSError:
++            return   # another worker is merging
++        try:
++            now = time.time()
++            done = [f for f in files if now - os.path.getmtime(f) > 120]
++            if len(done) < 2:
++                return
++            tmp = os.path.join(self.dir, "merged_%d_%d.tmp" % (os.getpid(), int(now)))
++            with open(tmp, "w", encoding="ascii") as out:
++                out.writelines("%s %d\n" % kv for kv in self.scores.items())
++            os.replace(tmp, tmp[:-4] + ".txt")
++            self.offsets[tmp[:-4] + ".txt"] = os.path.getsize(tmp[:-4] + ".txt")   # already in memory
++            for f in done:
++                try:
++                    os.remove(f)
++                except OSError:
++                    pass
++        except OSError:
++            pass
++        finally:
++            os.close(fd)
++            try:
++                os.remove(lock)
++            except OSError:
++                pass
++
++    def refresh(self) -> None:
++        self.next_refresh = time.time() + REFRESH_SECONDS
++        for path in glob.glob(os.path.join(self.dir, "*.txt")):
++            if path == self.own:
++                continue
++            start = self.offsets.get(path, 0)
++            try:
++                with open(path, "rb") as f:
++                    f.seek(start)
++                    data = f.read()
++            except OSError:
++                continue
++            end = data.rfind(b"\n") + 1   # a line still being written is read next time
++            if not end:
++                continue
++            self.offsets[path] = start + end
++            if len(self.scores) >= MAX_ENTRIES:
++                continue
++            for line in data[:end].split(b"\n"):
++                parts = line.split()
++                if len(parts) == 2:
++                    try:
++                        self.scores[parts[0].decode()] = int(parts[1])
++                    except ValueError:
++                        pass
++
++    def get(self, source_hash: bytes) -> Optional[int]:
++        if time.time() >= self.next_refresh:
++            self.refresh()
++        score = self.scores.get(source_hash.hex()[:KEY_HEX])
++        if score is not None:
++            self.hits += 1
++            self._stat()
++        return score
++
++    def _stat(self) -> None:
++        """every 200 events write this worker's hits/adds to stats_<pid>.tsv (overwritten; the run
++        is ended with taskkill, so no end-of-run hook). permseen_stats.py sums them per function."""
++        if (self.hits + self.adds) % 200:
++            return
++        try:
++            with open(os.path.join(self.dir, "stats_%d.tsv" % os.getpid()), "w", encoding="ascii") as f:
++                f.write("%d %d %d\n" % (self.hits, self.adds, int(time.time())))
++        except OSError:
++            pass
++
++    def add(self, source_hash: bytes, score: int) -> None:
++        key = source_hash.hex()[:KEY_HEX]
++        if key in self.scores:
++            return
++        if len(self.scores) < MAX_ENTRIES:
++            self.scores[key] = score
++        self.out.write("%s %d\n" % (key, score))
++        self.out.flush()   # the run is ended with taskkill: never keep lines in a buffer
++        self.adds += 1
++        self._stat()
++
++
++def clean_old(root: str) -> None:
++    """At most once an hour: delete stores nobody has used for KEEP_DAYS."""
++    marker = os.path.join(root, ".last_clean")
++    try:
++        if time.time() - os.path.getmtime(marker) < 3600:
++            return
++    except OSError:
++        pass
++    try:
++        os.makedirs(root, exist_ok=True)
++        open(marker, "w").close()
++        for d in glob.glob(os.path.join(root, "*", "")):
++            files = glob.glob(os.path.join(d, "*"))
++            newest = max([os.path.getmtime(f) for f in files] or [os.path.getmtime(d)])
++            if time.time() - newest > KEEP_DAYS * 86400:
++                for f in files:
++                    os.remove(f)
++                os.rmdir(d)
++    except OSError:
++        pass
++
++
++def open_store(run_dir: str, fn_name: str, scorer: object) -> Optional[SeenStore]:
++    if os.environ.get("PERM_SEEN", "1") == "0":
++        return None
++    try:
++        clean_old(os.environ.get("PERM_SEEN_DIR") or os.path.join(os.path.dirname(os.path.normpath(run_dir)), "_seen"))
++        return SeenStore(run_dir, fn_name, scorer)
++    except OSError:
++        return None   # never let the memory stop a permuter run
