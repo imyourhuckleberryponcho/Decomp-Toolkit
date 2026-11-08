@@ -46,6 +46,49 @@ hits per hundred near misses, plus many "improved but not exact" candidates that
   different seed or after a manual change.
 - Run register-only near misses first; they are where the permuter pays.
 
+### Focused and tandem permuter runs
+
+Applies to: universal (the measurements are from a GameCube/MWCC project; the method works with any compiler)
+
+A plain permuter run mutates the whole function at random. On a long function most mutations land far away from the
+problem, so the run spends hours on edits that cannot matter. Two refinements fix that:
+
+- **Focused run.** Mutate only a few marked regions: the lines that create the misplaced values (a line table from a
+  debug build, or `regwhere`-style output, tells you which source line defines each wrong register) plus the
+  declaration block. Every candidate is now "near" the problem, so a lot more of them change the score.
+- **Tandem run** (`tools/permuter/permtandem.py`). Two lanes on the SAME function at the same time, sharing CPU:
+  a **focus** lane (only the marked regions, register-biased mutation weights) and a **whole** lane (the entire body).
+  Every N seconds the best new find of either lane - after a behaviour guard rejects junk (volatile, empty ifs,
+  repeated conditions, read-before-set, changed constants or call arguments) - is spliced into BOTH lanes as their new
+  starting point, and the focus regions are re-marked around the statements that just changed. The log says which lane
+  found what. Stop on score 0, after a few idle minutes, or at a time limit.
+
+**What a fair test showed.** We ran all three modes at the same time, with equal CPU, on a fixed list of register-only
+near misses (two rounds, 20-24 functions, 10-20 minutes each), then judged every result by hand:
+
+| mode | valid wins | note |
+|---|---|---|
+| tandem | 3-4 | including one score 280 -> 0 (exact) and one 155 -> 55 that needed a find from EACH lane combined |
+| whole function only | 4 | |
+| focus only | 0 | never won on its own |
+
+So: **narrowing alone is not enough** - the fix is often a small edit somewhere you did not mark (a declaration far
+away, a helper). Narrowing is valuable as a *partner* that refines what the whole-function lane finds. In a long
+unattended run the tandem pass reached score 0 on 8 functions in one night where the previous night's plain pass
+reached 0.
+
+**Practical lessons**
+- Check the starting point first: if the permuter's base does not score close to your real diff (a few points per
+  differing line), its "improvements" are noise. Re-create the setup from the current source.
+- When a function's tandem turn fails, restart it from a few different *source variants* (seed hopping, e.g. the
+  top variants of a scripted search) instead of the same start with a new random seed.
+- Read results by hand. Automatic validity checks on reprinted permuter code have false alarms (an `else if` split
+  looks like a structure change) and miss things (an overwritten accumulator). Keep junk passes (volatile, `(0, x)`)
+  switched off.
+- Record what each run tried (a shared "seen" store): 20-60 % of candidates repeat earlier ones.
+- Know when to stop: once the leftovers are pure register colouring, the permuter's yield drops to almost nothing.
+  Mining the history of its results (which edit kinds ever helped which shape of problem) tells you when you are there.
+
 ## Scripted source search (no randomness)
 
 For a stuck function, a *systematic* search of behaviour-preserving edits is faster than random mutation:
