@@ -9,8 +9,10 @@ with no arguments (the definition elsewhere keeps its parameter).
 For every non-exact function in report.json (>= --min percent) both objects are disassembled; calls are matched per
 callee in order; for each pair the argument registers (r3..r10, f1..f8) written since the previous call/branch/label
 are compared. Printed: unit, function, callee, registers only WE write (with our instruction).
-usage (from the project root): python argextra.py [--min 80] [--unit-filter S] [--strict] [--consts]
+usage (from the project root): python argextra.py [--min 80] [--unit-filter S] [--strict] [--consts] [--widths]
 
+--widths: argument registers narrowed to another width before a call than in the target (clrlwi/extsb/extsh) =
+this file's prototype of the callee, or the local passed, has another width than the original's.
 --consts: instead, list argument registers where WE load a constant (`li`) but the target loads a
 DIFFERENT constant or a non-constant value (mr/lwz/...). Typical find: the draft
 called f(type, 0) where the game calls f(id, type) - a wrong argument list that no score hint points at.
@@ -25,6 +27,7 @@ OBJDUMP = ROOT + '/build/binutils/powerpc-eabi-objdump' + EXE
 ARGREG = re.compile(r'^(r(?:[3-9]|10)|f[1-8])$')
 STRICT = False
 CONSTS = False
+WIDTHS = False
 
 
 def disasm(obj):
@@ -73,9 +76,13 @@ def calls(ins):
     return res
 
 
-def check(unit, fnames):
+def check(unit, fnames, mobj=None, mode=None):
+    """mobj: another compiled object (a scratch build) instead of build/<VER>/src; mode: 'strict' / 'consts' /
+    'widths' / 'plain' instead of the module globals (thread-safe, used by argrepair.py)"""
     tobj = f'{ROOT}/build/{VER}/obj/{unit}.o'
-    mobj = f'{ROOT}/build/{VER}/src/{unit}.o'
+    mobj = mobj or f'{ROOT}/build/{VER}/src/{unit}.o'
+    strict, consts, widths = (STRICT, CONSTS, WIDTHS) if mode is None else (
+        mode == 'strict', mode == 'consts', mode == 'widths')
     if not (os.path.exists(tobj) and os.path.exists(mobj)):
         return []
     T, M = disasm(tobj), disasm(mobj)
@@ -92,14 +99,31 @@ def check(unit, fnames):
             if len(tc[callee]) != len(mc.get(callee, [])):
                 continue
             for i, (tw, mw) in enumerate(zip(tc[callee], mc[callee])):
-                if CONSTS:
+                if widths:
+                    def width(s):
+                        m = re.match(r'clrlwi\.?\s+\w+,\s*\w+,\s*(\d+)', s or '')
+                        if m:
+                            return 'u%d' % (32 - int(m.group(1)))
+                        m = re.match(r'(extsb|extsh)\b', s or '')
+                        return {'extsb': 's8', 'extsh': 's16'}[m.group(1)] if m else None
+                    bad = {}
+                    for r in set(tw) | set(mw):
+                        tws, mws = width(tw.get(r)), width(mw.get(r))
+                        if tws != mws and (tws or mws) and r in tw and r in mw:
+                            bad[r] = f'target {tw[r]}  ours {mw[r]}'
+                        elif tws and r in tw and r not in mw:
+                            bad[r] = f'target {tw[r]}  ours (no narrowing)'
+                    if bad:
+                        out.append((unit, fn, callee, i, bad))
+                    continue
+                if consts:
                     bad = {r: f'{s}  (target: {tw[r]})' for r, s in mw.items()
                            if s.startswith('li ') and r in tw and tw[r] != s and not tw[r].startswith('addi ')}
                     if bad:
                         out.append((unit, fn, callee, i, bad))
                     continue
                 extra = {r: s for r, s in mw.items() if r not in tw}
-                if STRICT:
+                if strict:
                     # strong signals only: in-place narrowing (prototype width) or a constant the target never loads
                     extra = {r: s for r, s in extra.items()
                              if re.match(r'(clrlwi|extsb|extsh|rlwinm)\s+(\w+),\2,', s)
@@ -115,8 +139,10 @@ def main():
     ap.add_argument('--unit-filter', default='')
     ap.add_argument('--strict', action='store_true', help='only in-place narrowing or constants the target never loads')
     ap.add_argument('--consts', action='store_true', help='constants we pass where the target passes something else')
+    ap.add_argument('--widths', action='store_true', help='argument narrowed to another width than the target before a call')
     a = ap.parse_args()
-    global STRICT, CONSTS
+    global STRICT, CONSTS, WIDTHS
+    WIDTHS = a.widths
     STRICT = a.strict
     CONSTS = a.consts
     rep = json.load(open(f'{ROOT}/build/{VER}/report.json'))
@@ -138,7 +164,7 @@ def main():
     for callee, rows in sorted(bycallee.items(), key=lambda kv: -len(kv[1])):
         print(f'{callee}  ({len(rows)} call sites)')
         for unit, fn, i, extra in rows:
-            print(f'    {unit}  {fn}  call#{i}  ' + ('we/target: ' if CONSTS else 'only we set: ') + '; '.join(f'{r}: {s}' for r, s in sorted(extra.items())))
+            print(f'    {unit}  {fn}  call#{i}  ' + ('widths: ' if WIDTHS else 'we/target: ' if CONSTS else 'only we set: ') + '; '.join(f'{r}: {s}' for r, s in sorted(extra.items())))
 
 
 if __name__ == '__main__':

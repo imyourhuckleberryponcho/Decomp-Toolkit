@@ -12,7 +12,7 @@ Run every script **from the project root** (or set `DECOMP_REPO`). The shared mo
 - the binutils / dtk / objdiff-cli programs in `build/binutils` and `build/tools`
   (`OBJDUMP`, `DTK`, `OBJDIFF` override).
 
-Scripts write scratch output below `build/scratch/` only. Set `PYTHONUTF8=1` on Windows. A unit is the path under `src/`
+Scripts write scratch output below `build/scratch/` only, except the ones marked **edits src**. Set `PYTHONUTF8=1` on Windows. A unit is the path under `src/`
 without extension, e.g. `game/menu`. The compile step uses the exact flags from `ninja -t commands`, so run
 `python configure.py` once first.
 
@@ -31,6 +31,7 @@ in your own copy - they are short.
 | `callorder.py` | Call sequence per function, target vs ours | `callorder.py <unit> [func ...]` |
 | `structdist.py` | Distance of one function after replacing register names: 0 = register-only | `structdist.py <unit> <func> [--show]` |
 | `shapedist.py` | REAL code difference: also ignores stack-slot offsets, `mr` copies, saved-register spills, frame size and anonymous-versus-named symbols; 0 = colouring puzzle only | `shapedist.py <unit> <func> [--show]` or `--batch Q.tsv` |
+| `regclass.py` | Strict class of every near miss (regs-only / order-only / extra / missing / other); `--full100`: functions scored 100% that are NOT identical (another call target, immediate ...) | `regclass.py [--min 99]`, `regclass.py --full100` |
 | `objsame.py` | Proves an edit left the object byte-identical (code + relocations + all section bytes) against git HEAD, or against saved objects for header edits | `objsame.py src/x.cpp [--rev R]`; `--save NAME` / `--compare NAME` |
 
 ## Finding what is wrong across many units (read report.json + objects)
@@ -41,7 +42,7 @@ in your own copy - they are short.
 | `framescan.py` | Functions whose stack frame size differs from the target (a real source difference) | `framescan.py [--min 90]` |
 | `branchflip.py` | Inverted conditions: same code, opposite `bCC` | `branchflip.py [--min 80]` |
 | `switchcases.py` | Switch case labels / compare constants present only in the target | `switchcases.py [--min 85]` |
-| `argextra.py` | Calls where we set an argument register the target leaves alone (extra/lost args, wrong prototypes); `--consts` finds wrong constants/orders | `argextra.py [--strict] [--consts]` |
+| `argextra.py` | Calls where we set an argument register the target leaves alone (extra/lost args, wrong prototypes); `--consts` finds wrong constants/orders, `--widths` other narrowing | `argextra.py [--strict] [--consts] [--widths]` |
 | `signscan.py` | Signed/unsigned and width pairs (`extsb` vs `clrlwi`, `srawi` vs `srwi`, `cmpw` vs `cmplw`) = value bugs | `signscan.py [--unit S]` |
 | `bindscan.py` | Symbol binding differences (`static` vs global vs weak) | `bindscan.py [--all-units]` |
 | `sdascan.py` | Extern data declared as a scalar where the target uses `lis/@l` (arrays, big objects) | `sdascan.py [--unit S]` |
@@ -60,6 +61,36 @@ in your own copy - they are short.
 | `regplan.py` | Which VARIABLE sits in the wrong register (from `-sym on` debug info) and a declaration order to try | `regplan.py <unit> <func> [--try]` |
 | `regwhere.py` | Which SOURCE LINE defines each misplaced register value (DWARF line table) | `regwhere.py <unit> <func> [--src F]` |
 | `patternhunt.py` | Regex over other decomps' matching asm (same compiler), shows the source of each hit | `patternhunt.py 'regex' --corpus DIR[=SRCDIR] [--src]` |
+
+## Fixing and installing by itself (**edits src**, every change verified; guide 13)
+
+| Tool | Solves | Usage |
+|---|---|---|
+| `argrepair.py` | Wrong literal call arguments: tries the target's constant, the caller's parameters, locals and fields; keeps only identical or provably right ones | `argrepair.py [--only U] [--dry] [-j 6]` |
+| `permuter/permfix.py` | Score-0 permuter results with idioms or macros -> natural source, cleaned step by step while it stays identical | `permuter/permfix.py [--only F] [--dry]` |
+| `draft/protos.py` | Whole-program prototypes (register liveness over every function and caller) as m2c context. Read-only | `draft/protos.py --m2c DIR` |
+| `draft/redraft.py` | Redoes weak m2c drafts: jump tables, literals, stack arrays, prototypes, cast repair; best version kept | `draft/redraft.py --m2c DIR [--only U] [--units RE] [--dry]` |
+| `../runner/autoinstall.py` | Installs the runner's verified results that still hold in the current source | `autoinstall.py --latest [--improved] [--watch 30]` |
+
+## Code other projects already matched (guide 08)
+
+| Tool | Solves | Usage |
+|---|---|---|
+| `refs/refcorpus.py` | Compiles other projects' library code (from bare git mirrors) with your compilers; reads their configure.py as data, never runs it | `refs/refcorpus.py [--fetch] [--list] [--all]` |
+| `refs/refmatch.py` | Compares that corpus with your executable: exact, close, pieces, whole files; names and file split do not matter | `refs/refmatch.py` |
+| `refs/refport.py` | Imports runs of matching functions as their own units (reference compiler + flags), call targets checked against the game, gated and rolled back. **edits src, splits, unit list** | `refs/refport.py [--dry] [--close] [--refresh] [--minutes M]` |
+| `refs/unit_overlay.py` | Two lines in configure.py that let refport add units | see its docstring |
+
+## Learning from histories (guide 11, 12)
+
+| Tool | Solves | Usage |
+|---|---|---|
+| `learn/trickminer.py` | The last small edit of every function that matches today, classified, from any git history | `learn/trickminer.py --tag mine` |
+| `learn/refmine.py` | The same over all your reference mirrors | `learn/refmine.py [--fetch]` |
+| `learn/fixrules.py` | Mined edits -> behaviour-preserving rewrite rules | `learn/fixrules.py build`, `show 30` |
+| `learn/fixrule_tricks.py` | Trick plug-in that applies them in the source search | `search/tricksweep.py U F --plugins tools/learn/fixrule_tricks.py` |
+
+`unitlib.py` is the shared library of these tools (scoring, strict comparison, C text helpers).
 
 ## Moving code around
 
@@ -83,4 +114,8 @@ on project data (histories, lists of linked units); chapter 12 explains how to b
 - The scripts match the dtk-template naming of 2024 and later (`build/<ID>/obj`, `build/<ID>/src`, `.fn ... .endfn`
   asm blocks, `Object(NonMatching|MatchingFor("ID"), "path.c")` in `configure.py`). Newer templates that spell the
   status `Matching` need a one-line change to the regex in `bindscan.py`/`deferscan.py`/`patternhunt.py`.
+- The tools in the three sections above were run end to end on a dtk-template project (C units, Windows). The C++ side is
+  limited: `argrepair`, `permfix` and `redraft` handle C symbol names only.
+- Environment: `M2C` (m2c checkout), `DECOMP_REFS` (reference mirrors, default `build/scratch/refs`), `DECOMP_DOL` (original
+  executable, default from config.yml), `DECOMP_MWCC` (main compiler version, default the most used one).
 - Output files go to `build/scratch/*.md` or `*.tsv`.

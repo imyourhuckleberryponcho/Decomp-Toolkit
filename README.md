@@ -5,7 +5,7 @@ Metrowerks CodeWarrior (MWCC), using decomp-toolkit (dtk), objdiff, ninja and de
 (workflow, verification, triage, search strategy, portability) applies to **any** decompilation project (N64, GBA, PS2,
 x86 ...); each file says which parts are universal and which are GameCube-specific (see the scope table below).
 
-It is a collection of things that were learned while matching a large game: why a register ends up where it does,
+It is a collection of things that were learned while matching games: why a register ends up where it does,
 which source shape produces which instruction pattern, what makes a unit link or not, and small scripts that
 automated the boring parts. It is not a framework; take what helps.
 
@@ -27,7 +27,10 @@ automated the boring parts. It is not a framework; take what helps.
    python tools/shapedist.py game/menu myFunction --show   # the REAL difference, ignoring registers and stack slots
    python tools/objsame.py src/game/menu.cpp # did my edit leave the object byte-identical?
    python tools/labgrid.py lab.cpp --unit game/menu   # which of these source forms change the machine code?
+   python tools/regclass.py --full100        # which functions look finished (100%) but are not identical?
    ```
+   Early in a project, with many weak drafts or unidentified library code, start with `guide/13` instead: better drafts
+   (`tools/draft/`) and importing already matched library code (`tools/refs/`) move far more than any search.
    See `tools/README.md` for the full list and for how project paths are found (`DECOMP_REPO`, `DECOMP_VERSION`).
 3. If you use decomp-permuter, look at `permuter/` for a patch with a shared memory of tried candidates and safer passes.
 
@@ -53,6 +56,7 @@ what to replace.
 | 10 automation tips | universal |
 | 11 customizing for your game | universal |
 | 12 triage and learning | universal (real-difference triage, lab method, history mining, honest negative results) |
+| 13 drafts and self-verifying tools | universal (order of work, acceptance rules); the draft repairs are m2c / PowerPC / MWCC |
 
 | Tool | Scope |
 |---|---|
@@ -60,6 +64,8 @@ what to replace.
 | `regonly`, `regplan`, `regwhere`, `structdist`, `reldiff`, `argextra`, `signscan`, `branchflip`, `callorder`, `switchcases`, `jtcheck`, `framescan` | PowerPC assembly syntax (easy to adapt: the register-name and mnemonic regular expressions are at the top) |
 | `deferscan`, `poolscan`, `sdascan`, `orderscan`, `revfuncs`, `bindscan`, `search/regsolve`, `search/tricksweep` | GameCube / MWCC behaviour |
 | `permuter/`, `tools/permuter/` | universal permuter drivers; the changes are tuned for MWCC |
+| `regclass`, `argrepair`, `draft/`, `refs/` | PowerPC + dtk-template projects; `draft/` and `refs/` also MWCC |
+| `learn/` | universal (git history + C); the plug-in feeds `search/tricksweep` |
 
 ## Make them fit your game
 
@@ -72,8 +78,8 @@ your SDK's helpers, your draft tool's habits, your files' compiler settings and 
 | Folder | Contents |
 |---|---|
 | `guide/` | the handbook: workflow, a model of MWCC register allocation / evaluation order / stack layout, symptom -> fix recipes, flags and deferred-inlining files, data and linking, verification pitfalls, permuter use, reference decomps, PC-port portability |
-| `tools/` | stand-alone scripts (Python 3, standard library) plus `tools/README.md`; `tools/search/` (regsolve, tricksweep) and `tools/permuter/` (permuter drivers) |
-| `runner/` | configurable long-run (overnight) runner: stages, lanes, parking, morning report; results go to a review folder, never into your source |
+| `tools/` | stand-alone scripts (Python 3, standard library) plus `tools/README.md`; `tools/search/` (regsolve, tricksweep), `tools/permuter/` (permuter drivers), `tools/draft/` (better m2c drafts), `tools/refs/` (find and import code other projects matched), `tools/learn/` (rules from git histories) |
+| `runner/` | configurable long-run (overnight) runner: stages, lanes, parking, morning report; results go to a review folder, never into your source; `autoinstall.py` installs what still verifies, when you want that |
 | `examples/` | a trick plug-in template (`my_game_tricks.py`) |
 | `permuter/` | improvements to decomp-permuter as a patch against upstream commit `8556c81`, and a README explaining each |
 | `LICENSE` | MIT (third-party notice for decomp-permuter included) |
@@ -87,7 +93,11 @@ MIT (see `LICENSE`); the permuter patch keeps the upstream notice in `permuter/L
 - Compiler behaviour is described as *measured* on MWCC GC 2.x builds; other versions may differ. Run a quick lab
   (`tools/labgrid.py`) before relying on a rule.
 - The scripts were developed on Windows against one project and then made generic. Read a script before you run it on
-  your tree; they only write below `build/scratch/` and (for source-variant search) restore the source file afterwards.
+  your tree. Most only write below `build/scratch/` and (for source-variant search) restore the source file afterwards.
+  These EDIT your source, so start from a clean git tree: `argrepair`, `permuter/permfix`, `draft/redraft`,
+  `refs/refport` (also splits and unit list), `runner/apply`, `runner/autoinstall`. Each has `--dry`.
+- `tools/refs/` works on other people's repositories. Their code is theirs: follow their licenses, credit them, and do
+  not publish imports from projects without one (`refport.py` skips those by default).
 - No game data, assets or disassembly are included.
 
 Contributions and corrections are welcome.

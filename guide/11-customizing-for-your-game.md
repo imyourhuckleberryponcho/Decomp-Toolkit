@@ -74,6 +74,11 @@ tricks to write. The generic regsolve in this repository re-finds a real one-lin
 (`window->selection = (pos + 1) + top` -> `1 + (top + pos)`), so the machinery works; what it lacks is your
 project's vocabulary.
 
+`tools/learn/` does steps 1-3 for you: `trickminer.py` extracts the edits, `fixrules.py build` keeps the ones that cannot
+change behaviour, and `fixrule_tricks.py` is the plug-in that applies them. A young project has little history of its own:
+`refmine.py` mines the reference mirrors as well (they must be full clones), and other projects' small edits
+transfer when the compiler is the same. Only edits in files that match *today* count.
+
 ## 4. Tell regsolve about your project
 
 `tools/search/regsolve.py` searches combinations of behaviour-preserving edits. Two project-specific inputs help it a

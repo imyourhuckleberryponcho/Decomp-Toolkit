@@ -90,6 +90,18 @@ python runner/apply.py <package>/permuter_review/ready/<func>
 `apply.py` refuses if the source changed since the result was made, keeps `<src>.before_apply`, and finishes by printing
 fcheck's checks. Build with your normal `ninja` and commit yourself.
 
+### Installing without reading every diff
+
+```
+python runner/autoinstall.py --latest --dry        # what would be installed, and why the rest is refused
+python runner/autoinstall.py --latest              # exact results that are still identical in the current source
+python runner/autoinstall.py --latest --improved   # also improvements that pass the behaviour guard
+python runner/autoinstall.py --latest --watch 30   # every 30 minutes, in a second window
+```
+Refused: hacks (volatile, goto, comma tricks, permuter temps), results that are not identical any more, anything that costs
+another function. Start from a clean git tree and commit yourself; `git revert` is the undo. It works on packages, which
+a run writes when it ends, stops, or on `runner.py report`.
+
 ## Safety
 
 The runner compares each unit's source file before and after every task and restores it if a tool edited it (logged as

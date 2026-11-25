@@ -13,6 +13,7 @@ Code can match 100% and the unit still will not link. These are the data-side re
 | `fn_XXXX` names | rename in `symbols.txt` to the real (mangled) name; the asm regenerates |
 | Anonymous struct names (`@class$515File_c`) | rename the *target* symbol to your compiler's name so objdiff pairs them (local to your project; the binary is unaffected) |
 | `force_active` in `symbols.txt` did not keep a function | use `#pragma force_active on` in the source |
+| The linker **hangs** (no error, no CPU progress) after a new split | an object that begins with a zero-size label at offset 0, i.e. a split boundary placed on a label (seen with mwld GC/1.3.2) | move the boundary to a function start, or keep the label with the function before it |
 | A table symbol a few bytes larger than its entries | alignment padding folded in by the disassembler: shrink the split range instead of inventing a field |
 | Objects at **odd offsets** in a data blob (byte scripts) | MWCC aligns every data object to >= 4; such blobs cannot be written as separate C objects (use one byte array) |
 

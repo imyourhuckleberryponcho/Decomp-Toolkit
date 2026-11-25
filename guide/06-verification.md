@@ -8,12 +8,21 @@ Every project eventually ships a "100% matched" function that is wrong. Know the
 | Anonymous constants `@N` are interchangeable in diff tools | `0.5f` loaded instead of `1.0f` still scores 100% | compare constant **values** per function (`fcheck.py` CONST) |
 | Local branch targets are normalised | `break` vs `continue` vs `return`, or a statement inside vs outside a loop shows as 99.9% with an empty diff | `reldiff.py` (branch targets as offsets from the function start) |
 | A twin helper | a function copied from a twin scores 100% while calling the twin's helper | `fcheck.py` CALLS, `callorder.py` |
+| Relocations may not be compared at all | with the diff tool's relocation check off (objdiff: `functionRelocDiffs=none`) a call to ANY function scores 100% | `regclass.py --full100`, `fcheck.py` CALLS; for imported code compare with the executable's own `bl` targets (`refport.py --refresh`) |
 | Jump tables are data | a wrong `case` label scores 100% on code | `jtcheck.py` (each entry reduced to the *rank* of its target block) |
 | Data-section scores | table bytes with relocations are masked | DATA check; the executable hash |
 | Dead stripping and link order | units "match" individually, the hash fails | executable hash |
 | Label-only diffs "don't matter" | two constants with identical values referenced in a different order break the hash | normalise labels, never delete diff lines containing `@` |
 | Function statics / string pools | numbered differently or placed after a file static | LAYOUT + the hash |
 | Per-function scores of a *different compile* | an old object compared | always compile fresh in a scratch folder |
+
+Run `tools/regclass.py --full100` after every automatic session. It compares every 100% function instruction by instruction
+and lists the ones that are not identical. Causes seen: a call to a twin, another immediate, and a neighbour that is still an empty stub and was inlined away (so the
+source is right but the code is not). A few are naming differences (a label and a symbol at the same address); the
+rest look finished and are wrong, which is the worst state a function can be in, because nobody looks at it again.
+
+Also know what the hash proves: units not marked matching are linked from the ORIGINAL object, so a correct hash says
+nothing about their source. It does prove that your splits are intact.
 
 Rules that follow:
 

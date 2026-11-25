@@ -88,6 +88,25 @@ the functions on 600 exact functions (calls-crossing values 52%). The scheduler 
 ranking has no single rule, and a removed late use leaves invisible interference. It is a *score*, not a predictor.
 (Not included as code here; the idea is in this chapter.)
 
+### Looking inside the compiler (GameCube / MWCC)
+
+When the score says "register problem" and no rule explains it, the compiler itself can be asked.
+[mwcc-debugger](https://github.com/cadmic/mwcc-debugger) (by its own author, not part of this toolkit; follow its README to
+install it) runs MWCC under an emulator and dumps, per function, the front-end tree after each pass, the back-end code
+before and after register allocation, scheduling and peephole, and the allocator's view of every virtual register. It
+supports GC/1.1 and GC/2.6, which are close to most other versions.
+
+Four helpers are worth writing on top of its dumps (ours depend on our local setup, so only the ideas are here):
+
+| Helper | What it does | What it answers |
+|---|---|---|
+| `regvmap` | aligns target asm -> our asm -> the dump after allocation -> the dump before it, operand by operand | which virtual register (and variable) should have had which physical register |
+| `tempshape` | for values that are compiler temporaries (`@N`), finds the source line and kind: loop induction, call result, common sub-expression, copy | which *shape* of that line to change (a declaration move cannot reach a temporary) and tries those shapes |
+| `deadext` | lists sign / zero extensions before allocation whose result nobody reads | a hidden width mismatch (field, local, parameter, prototype) that is invisible in the final code but has already shifted the schedule |
+| `mldata` | compiles natural rewrites of exact functions and records how each changed the registers and the overlaps | data on which kind of rewrite causes which kind of change |
+
+`deadext` is the cheapest to write and found real type errors.
+
 ## 4. Learn from your own history, and know when to stop (universal)
 
 Keep every attempt: which edit, which function, before/after score. After a few thousand results, look at the data.

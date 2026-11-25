@@ -5,7 +5,7 @@ bytes as the retail game. It is written for people using the usual toolchain (de
 decomp-permuter, m2c), mostly with MWCC 2.x ("GC/2.6" style compilers), but the verification and workflow chapters
 apply to any decompilation project. Every file starts with an `Applies to:` line: **universal** or **GameCube / MWCC**; the top-level README has the full scope table.
 
-Everything here was learned the hard way on a large project. The examples are short and use neutral names.
+Everything here was learned the hard way on real projects. The examples are short and use neutral names.
 Compiler behaviour is described as *observed* with specific compiler builds; always confirm with your own lab
 (see `tools/labgrid.py`) before relying on a rule.
 
@@ -25,6 +25,7 @@ Compiler behaviour is described as *observed* with specific compiler builds; alw
 | [10-automation-tips.md](10-automation-tips.md) | Scripting and batch-work tips |
 | [11-customizing-for-your-game.md](11-customizing-for-your-game.md) | Teaching the tools your engine, SDK and fix history: most wins come from this |
 | [12-triage-and-learning.md](12-triage-and-learning.md) | Real-difference triage, the lab method, ordering scores, learning from history (including a negative result), layout sweeps, byte-identity proofs |
+| [13-drafts-and-self-verifying-tools.md](13-drafts-and-self-verifying-tools.md) | Fix weak drafts before searching, whole-program prototypes, rules for tools that install their own fixes |
 
 ## Five rules that matter most
 

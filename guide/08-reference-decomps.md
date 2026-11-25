@@ -7,9 +7,9 @@ The fastest large gains come from code someone already matched. Most GameCube ga
 |---|---|---|
 | Dolphin SDK (OS, GX, DVD, PAD, VI, AI, CARD, GBA ...) | most GameCube decomps | same code, different SDK versions/flags; check the compiler version per library |
 | MSL C library / Runtime / MetroTRK | several decomps built with the same MSL | MSL differs from stock fdlibm (errno = EDOM, `NAN`, `ldexp` rather than `scalbn`, inline `fabs`). TRK uses `-inline deferred` (reverse order); its `OSReport` is non-variadic |
-| HAL sysdolphin (HSD baselib: jobj, dobj, mobj, tobj, aobj, fobj ...) | a fully matched fighting-game decomp | ports almost 1:1 into C + `-lang=c -inline deferred`; your game may add fields, functions and pool allocators |
+| HAL sysdolphin (HSD baselib: jobj, dobj, mobj, tobj, aobj, fobj ...) | projects that use the same library | ports almost 1:1 into C + `-lang=c -inline deferred`; your game may add fields, functions and pool allocators |
 | MusyX audio | the `musyx` submodule / reference library | files that differ get an edited local copy |
-| Same-engine sibling game | the earlier/later game by the same studio | huge overlap in engine, menu, message, battle code |
+| Same-engine sibling game | the earlier/later game by the same studio | huge overlap in engine and tool code |
 
 ## How to port
 
@@ -28,6 +28,33 @@ The fastest large gains come from code someone already matched. Most GameCube ga
 7. Record the revision you ported from; re-run the similarity finder when the sibling progresses. When a sibling
    reaches 100%, refresh the twin table against its final sources: structure transfers (loop layout, which helper is
    not inlined, int vs bool constants), register-only leftovers usually do not (C vs C++, different compilers).
+
+## Doing it automatically (`tools/refs/`)
+
+The three tools turn the recipe above into a batch job. The idea works for any platform with a fixed compiler.
+
+1. **Compile the references, do not read them.** `refcorpus.py` compiles other projects' library files with *your* compilers,
+   each with its own version and flags, and again with your game's main version (the same library may have been built with
+   another compiler). Take the flags from their build description as *data*: never run a downloaded build script.
+2. **Compare machine code.** `refmatch.py` masks relocated words and compares every reference function with every function of
+   the executable. Names, file splits and addresses do not matter. Besides exact and close functions it reports *pieces*
+   (shared inlined helpers) and *files* (several functions of one object in order).
+3. **Import runs, not functions.** Consecutive functions that match one reference object are one source file (part). They
+   become their own unit with the reference's compiler and flags (`refport.py`).
+4. **Prove the pairing.** Masked comparison cannot tell two functions apart that differ only in what they call. The game
+   can: at each call site the executable says which of your functions the reference callee is. Two answers for one name, or
+   a call to the wrong member of the run, means a wrong pairing, however good the score.
+5. **Gate on the whole report**, by address: more exact functions, none lost, everything else not worse; else restore.
+6. **Then the close ones** (`--close`): where the symbol name is already known for certain, the real source with a small
+   version difference is a far better starting point than any draft.
+
+Traps: functions of a few instructions match unrelated code, so never take a NAME from them (an `operator new` once got the
+name of a graphics accessor). A wrong name spreads, because later steps trust it. And mind the licenses: no license file
+means no permission to redistribute, so keep such imports local. `refport.py` skips them by default and writes the
+license it found into each imported file.
+
+Mirrors go stale: fetch them from time to time. A run that failed is worth retrying only when the reference or your own
+neighbouring code changed, which the tool remembers.
 
 ## Practical SDK/library porting workflow
 

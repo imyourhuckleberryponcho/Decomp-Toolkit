@@ -5,7 +5,7 @@ usage (from the project root): python srcvariants.py <unit> <variants.py> [--fun
   src/<unit>.cpp|.c (old must occur). The file is restored afterwards (also on Ctrl+C / errors).
   --func F : also print the remaining diff line count of F (strict, registers included) per variant.
   --struct : with --func, also print the register-independent distance (target-only/ours-only instructions).
-  SCOPE = "static void foo(int a) {" in variants.py (optional, ): replacements only apply inside the function
+  SCOPE = "static void foo(int a) {" in variants.py (optional): replacements only apply inside the function
   that starts with that line (up to the next line that is exactly "}"), so twin functions are left alone.
 Compile failures are reported (fcheck's message goes to stderr; both streams are checked).
 """
@@ -21,6 +21,22 @@ RAW = open(src, 'rb').read()   # restore the exact bytes (LF files used to come 
 NEWLINE = '\r\n' if b'\r\n' in RAW else '\n'
 orig = RAW.decode('latin-1').replace('\r\n', '\n')
 ns = {'SRC': orig}
+
+
+def write_retry(path, data):
+    # Windows refuses the write while another process reads the file; a failed RESTORE would leave a test variant
+    # in the source. Retry for up to ~30 s before giving up.
+    import time
+    for _ in range(60):
+        try:
+            with open(path, 'wb') as f:
+                f.write(data)
+            return
+        except OSError:
+            time.sleep(0.5)
+    raise OSError('could not write %s (locked?) - RESTORE IT FROM GIT' % path)
+
+
 exec(open(vfile, encoding='utf-8').read(), ns)
 
 
@@ -67,7 +83,7 @@ try:
         for o, n in reps:
             t = t.replace(o, n)
         t = pre + t + post
-        open(src, 'w', encoding='latin-1', newline=NEWLINE).write(t)
+        write_retry(src, t.replace('\n', NEWLINE).encode('latin-1'))
         d, extra = score()
         if d is None:
             print('%-14s COMPILE FAILED %s' % (name, extra))
@@ -76,4 +92,4 @@ try:
         gone = [k[:28] + ' EXACT' for k in base if k not in d]
         print('%-14s %s%s' % (name, ', '.join(ch + gone) or 'no change', extra))
 finally:
-    open(src, 'wb').write(RAW)
+    write_retry(src, RAW)

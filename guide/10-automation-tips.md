@@ -12,8 +12,13 @@ shell script, a batch search or an assistant program):
   add up (hundreds of thousands of 600 KB folders filled a disk once).
 - **Verify twice.** A search result is only a candidate: re-compile it in the real build, run layout/const/call/data
   checks, run the full build. Reject candidates that add `volatile`, `goto`, `(0, x)`, empty ifs, or change a constant.
+- **Install or lose.** Findings that wait for a person are mostly lost. Let tools install their own results under strict
+  rules (chapter 13) and keep everything else as hints.
 - **Park and remember.** Keep a list of what was tried per function so the same searches are not repeated; only new
   tricks should re-run on parked functions.
+- **Re-open on new knowledge.** Parked functions are worth another try when the tool, its rule set or the code around them
+  changed. Store a version with every "tried" mark; a run whose whole queue is parked does nothing, quietly.
+- **Watch the curve.** Exact functions per hour, per stage. Flat for hours = change the input, not the duration.
 - **Short briefs for helpers.** If you delegate drafting to an assistant, give it: the unit, the asm path, 2-3 most
   similar matched functions' source as style templates, the exact compare command, the stop rule (about 5 attempts or
   10 minutes per function) and the verification list. Cap its context: tell it to grep and slice big files.
