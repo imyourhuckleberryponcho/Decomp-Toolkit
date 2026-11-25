@@ -2,7 +2,7 @@
 
 A "better scoring" candidate is sometimes wrong: a loop that tests one variable and increments another, `n + 1` -> `n + 0`,
 `switch (st)` -> `switch (ok)`, `f(x, 0)` -> `(0, x)`.
- must stay equivalent to the original, so such diffs are hints for a person, never source to keep.
+A rewrite must stay equivalent to the original, so such diffs are hints for a person, never source to keep.
 
 risks(diff_text) -> list of reasons (empty = looks like a pure rewrite). Checks:
   1. numeric constants: a number literal appears only on removed or only on added lines (sets, so chained
